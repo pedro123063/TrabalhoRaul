@@ -1,0 +1,6 @@
+US Stock Market Dataset (link: https://www.kaggle.com/datasets/asadullahcreative/us-stock-market-historical-ohlcv-dataset/data)
+python 3.14
+    pandas
+    numpy
+    scikitlean (importado em scripts como sklearn)
+    matplotlib
