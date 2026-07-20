@@ -1,146 +1,161 @@
 import os
-from typing import Dict
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 
+def _garantir_diretorio(diretorio: str):
+    if not os.path.exists(diretorio):
+        os.makedirs(diretorio)
 
-def run_graphics_pipeline(analise_consolidada: Dict[str, dict], output_dir: str = "output") -> None:
-    """
-    Consome a estrutura de dados consolidados da análise para gerar
-    as visualizações e relatórios do seminário:
+# =====================================================================
+# 1. GERADOR DE TABELA CONSOLIDADA (Salva como imagem e printa no console)
+# =====================================================================
+def gerar_tabela_consolida(analise_completa: dict, output_dir: str):
+    _garantir_diretorio(output_dir)
+    linhas = []
     
-    1. Imprime a tabela de métricas (RMSE e MAPE) no terminal e a salva como CSV.
-    2. Renderiza e salva a tabela de métricas como uma imagem PNG polida.
-    3. Gera o gráfico de evolução temporal de erros absolutos diários (R$).
-    4. Gera o gráfico de evolução temporal de erros percentuais diários (%).
+    # Nova varredura com 5 níveis
+    for ticker, kernels in analise_completa["todos_cenarios"].items():
+        for kernel, splits in kernels.items():
+            for split, cs in splits.items():
+                for c_value, wrs in cs.items():
+                    for w_ratio, dados in wrs.items():
+                        rmse = dados["metrics"]["rmse"]
+                        mape = dados["metrics"]["mape"]
+                        linhas.append({
+                            "Ticker": ticker,
+                            "Kernel": kernel,
+                            "Split": split,
+                            "C": c_value,
+                            "Window": f"{w_ratio * 100:.0f}%", # Novo campo visual
+                            "RMSE (R$)": f"R$ {rmse:.4f}",
+                            "MAPE (%)": f"{mape:.2f}%"
+                        })
     
-    Parâmetros:
-    - analise_consolidada (dict): Dicionário contendo a estrutura gerada pelo 
-                                  pipeline do módulo de análise.
-    - output_dir (str): Nome do diretório onde as imagens serão salvas.
-    """
-    # 1. Garante a existência do diretório de saída
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
-    # =========================================================================
-    # 2. CONSTRUÇÃO DA TABELA DE MÉTRICAS GERAIS
-    # =========================================================================
-    resumo_metricas = []
+    df_tabela = pd.DataFrame(linhas)
     
-    for ticker, info in analise_consolidada.items():
-        rmse_geral = info["metrics"]["rmse"]
-        mape_geral = info["metrics"]["mape"]
-        
-        resumo_metricas.append({
-            "Ticker": ticker,
-            "RMSE (R$)": f"R$ {rmse_geral:.4f}",
-            "MAPE (%)": f"{mape_geral:.2f}%"
-        })
-        
-    df_metricas = pd.DataFrame(resumo_metricas)
+    print("\n" + "="*80)
+    print("           TABELA CONSOLIDADA DE MÉTRICAS MULTIVARIADAS")
+    print("="*80)
+    print(df_tabela.to_string(index=False))
+    print("="*80)
     
-    # 2.1. Exibição clássica no terminal
-    print("\n" + "="*60)
-    print("           TABELA CONSOLIDADA DE MÉTRICAS DO MODELO SVR")
-    print("="*60)
-    print(df_metricas.to_string(index=False))
-    print("="*60 + "\n")
+    fig, ax = plt.subplots(figsize=(10, len(df_tabela) * 0.35 + 1.5))
+    ax.axis("tight")
+    ax.axis("off")
     
-    # 2.2. Salva como arquivo de dados CSV
-    path_csv = os.path.join(output_dir, "metricas_consolidadas.csv")
-    df_metricas.to_csv(path_csv, index=False)
-    
-    # Define um estilo estético limpo para as plotagens
-    plt.style.use('seaborn-v0_8-whitegrid' if 'seaborn-v0_8-whitegrid' in plt.style.available else 'default')
-    
-    # =========================================================================
-    # 3. GERAR IMAGEM DA TABELA (PNG)
-    # =========================================================================
-    # Criamos uma figura compacta para abrigar a tabela de forma elegante
-    fig, ax = plt.subplots(figsize=(6, 2))
-    ax.axis('off')  # Esconde os eixos do gráfico para focar apenas na tabela
-    
-    # Renderiza a tabela do Matplotlib
     tabela_plot = ax.table(
-        cellText=df_metricas.values,
-        colLabels=df_metricas.columns,
-        cellLoc='center',
-        loc='center'
+        cellText=df_tabela.values,
+        colLabels=df_tabela.columns,
+        cellLoc="center",
+        loc="center"
     )
-    
-    # Estilização visual profissional (Header azul escuro, texto branco e linhas suaves)
     tabela_plot.auto_set_font_size(False)
-    tabela_plot.set_fontsize(11)
-    tabela_plot.scale(1.2, 1.6)  # Dá um espaçamento (padding) interno agradável para as células
+    tabela_plot.set_fontsize(9)
+    tabela_plot.scale(1.2, 1.2)
     
-    # Aplica cores ao cabeçalho (linha 0) e bordas
-    for (row, col), cell in tabela_plot.get_celld().items():
-        if row == 0:
-            cell.set_text_props(weight='bold', color='white')
-            cell.set_facecolor('#1f4e79')  # Azul corporativo clássico para o header
-        else:
-            cell.set_facecolor('#f2f2f2' if row % 2 == 0 else 'white')  # Efeito zebrado suave
-        cell.set_edgecolor('#d3d3d3')
-        
-    path_tabela_img = os.path.join(output_dir, "tabela_metricas.png")
-    plt.savefig(path_tabela_img, bbox_inches='tight', dpi=300)
+    plt.title("Métricas Consolidadas por Cenário", fontsize=12, weight="bold", pad=20)
+    plt.savefig(os.path.join(output_dir, "tabela_consolidada.png"), bbox_inches="tight", dpi=150)
     plt.close()
-    print(f"-> Imagem da Tabela salva com sucesso em: '{path_tabela_img}'")
+
+# =====================================================================
+# 2. GRÁFICOS DE SENSIBILIDADE POR TICKER (Absoluto e Relativo)
+# =====================================================================
+def plotar_sensibilidade_por_ticker(analise_completa: dict, output_dir: str):
+    _garantir_diretorio(output_dir)
     
-    # =========================================================================
-    # 4. GRÁFICO 1: EVOLUÇÃO TEMPORAL DOS ERROS ABSOLUTOS (EM REAIS)
-    # =========================================================================
-    plt.figure(figsize=(11, 5.5))
-    
-    for ticker, info in analise_consolidada.items():
-        erros_absolutos = info["time_series"]["daily_absolute_errors"]
-        dias = np.arange(1, len(erros_absolutos) + 1)
+    for ticker, kernels in analise_completa["todos_cenarios"].items():
+        # --- 2.1 Erros Absolutos (R$) ---
+        plt.figure(figsize=(12, 6))
+        for kernel, splits in kernels.items():
+            for split, cs in splits.items():
+                for c_value, wrs in cs.items():
+                    for w_ratio, dados in wrs.items():
+                        erros_absolutos = dados["time_series"]["daily_absolute_errors"]
+                        passos_tempo = np.arange(len(erros_absolutos))
+                        label_curva = f"K: {kernel} | S: {split} | C: {c_value} | W: {w_ratio:.2f}"
+                        plt.plot(passos_tempo, erros_absolutos, label=label_curva, alpha=0.8)
         
+        plt.title(f"Sensibilidade de Erro Diário Absoluto (R$) - {ticker}", fontsize=14, weight="bold")
+        plt.xlabel("Dias de Teste", fontsize=11)
+        plt.ylabel("Erro Absoluto (R$)", fontsize=11)
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=8)
+        plt.savefig(os.path.join(output_dir, f"sensibilidade_absoluta_{ticker}.png"), bbox_inches="tight", dpi=150)
+        plt.close()
+
+        # --- 2.2 Erros Relativos (%) ---
+        plt.figure(figsize=(12, 6))
+        for kernel, splits in kernels.items():
+            for split, cs in splits.items():
+                for c_value, wrs in cs.items():
+                    for w_ratio, dados in wrs.items():
+                        erros_percentuais = dados["time_series"]["daily_percentage_errors"]
+                        passos_tempo = np.arange(len(erros_percentuais))
+                        label_curva = f"K: {kernel} | S: {split} | C: {c_value} | W: {w_ratio:.2f}"
+                        plt.plot(passos_tempo, erros_percentuais, label=label_curva, alpha=0.8)
+        
+        plt.title(f"Sensibilidade de Erro Diário Percentual (%) - {ticker}", fontsize=14, weight="bold")
+        plt.xlabel("Dias de Teste", fontsize=11)
+        plt.ylabel("Erro Percentual (%)", fontsize=11)
+        plt.grid(True, linestyle="--", alpha=0.5)
+        plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=8)
+        plt.savefig(os.path.join(output_dir, f"sensibilidade_relativa_{ticker}.png"), bbox_inches="tight", dpi=150)
+        plt.close()
+
+# =====================================================================
+# 3. GRÁFICOS DOS CAMPEÕES (Melhor Absoluto vs Melhor Relativo)
+# =====================================================================
+def plotar_campeoes_comparativos(analise_completa: dict, output_dir: str):
+    _garantir_diretorio(output_dir)
+    
+    # 3.1 Campeões por RMSE (Métrica Absoluta - Erro em R$)
+    plt.figure(figsize=(10, 5))
+    for ticker, campeao in analise_completa["campeoes_rmse"].items():
+        erros_absolutos = campeao["time_series"]["daily_absolute_errors"]
+        cfg = campeao["config"]
         plt.plot(
-            dias, 
             erros_absolutos, 
-            label=f"Erro {ticker}", 
-            linewidth=2,
-            alpha=0.85
+            label=f"{ticker} ({cfg['kernel']}, S:{cfg['split']}, C:{cfg['C']}, W:{cfg['window_ratio']:.2f}) | RMSE: R$ {campeao['metrics']['rmse']:.2f}"
         )
-        
-    plt.title("Evolução Temporal do Erro Absoluto Diário (R$)", fontsize=13, fontweight='bold', pad=15)
-    plt.xlabel("Dia de Teste", fontsize=11, labelpad=10)
-    plt.ylabel("Erro Absoluto (R$)", fontsize=11, labelpad=10)
-    plt.legend(frameon=True, facecolor='white', edgecolor='lightgrey', loc='upper right')
-    plt.tight_layout()
-    
-    path_erros_absolutos = os.path.join(output_dir, "grafico_erros_absolutos.png")
-    plt.savefig(path_erros_absolutos, dpi=300)
+    plt.title("Performance dos Modelos Campeões (Menor RMSE Absoluto)", fontsize=12, weight="bold")
+    plt.xlabel("Dias de Teste")
+    plt.ylabel("Erro Absoluto (R$)")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(fontsize=9)
+    plt.savefig(os.path.join(output_dir, "campeoes_melhor_rmse.png"), bbox_inches="tight", dpi=150)
     plt.close()
-    print(f"-> Gráfico de Erros Absolutos salva com sucesso em: '{path_erros_absolutos}'")
-    
-    # =========================================================================
-    # 5. GRÁFICO 2: EVOLUÇÃO TEMPORAL DOS ERROS PERCENTUAIS (%)
-    # =========================================================================
-    plt.figure(figsize=(11, 5.5))
-    
-    for ticker, info in analise_consolidada.items():
-        erros_percentuais = info["time_series"]["daily_percentage_errors"]
-        dias = np.arange(1, len(erros_percentuais) + 1)
-        
+
+    # 3.2 Campeões por MAPE (Métrica Relativa - Erro em %)
+    plt.figure(figsize=(10, 5))
+    for ticker, campeao in analise_completa["campeoes_mape"].items():
+        erros_percentuais = campeao["time_series"]["daily_percentage_errors"]
+        cfg = campeao["config"]
         plt.plot(
-            dias, 
             erros_percentuais, 
-            label=f"Erro % {ticker}", 
-            linewidth=2,
-            alpha=0.85
+            label=f"{ticker} ({cfg['kernel']}, S:{cfg['split']}, C:{cfg['C']}, W:{cfg['window_ratio']:.2f}) | MAPE: {campeao['metrics']['mape']:.2f}%"
         )
-        
-    plt.title("Evolução Temporal do Erro Percentual Diário (%)", fontsize=13, fontweight='bold', pad=15)
-    plt.xlabel("Dia de Teste", fontsize=11, labelpad=10)
-    plt.ylabel("Erro Percentual (%)", fontsize=11, labelpad=10)
-    plt.legend(frameon=True, facecolor='white', edgecolor='lightgrey', loc='upper right')
-    plt.tight_layout()
-    
-    path_erros_percentuais = os.path.join(output_dir, "grafico_erros_percentuais.png")
-    plt.savefig(path_erros_percentuais, dpi=300)
+    plt.title("Performance dos Modelos Campeões (Menor MAPE Relativo)", fontsize=12, weight="bold")
+    plt.xlabel("Dias de Teste")
+    plt.ylabel("Erro Percentual (%)")
+    plt.grid(True, linestyle="--", alpha=0.5)
+    plt.legend(fontsize=9)
+    plt.savefig(os.path.join(output_dir, "campeoes_melhor_mape.png"), bbox_inches="tight", dpi=150)
     plt.close()
-    print(f"-> Gráfico de Erros Percentuais salvo com sucesso em: '{path_erros_percentuais}'")
+
+# =====================================================================
+# PIPELINE INTEGRADO DE GRÁFICOS
+# =====================================================================
+def run_graphics_pipeline(analise_completa: dict, output_dir: str = "output"):
+    print("\n=== INICIANDO EXPORTAÇÃO DE GRÁFICOS E TABELAS ===")
+    
+    gerar_tabela_consolida(analise_completa, output_dir)
+    print("-> Tabela consolidada criada com sucesso!")
+    
+    plotar_sensibilidade_por_ticker(analise_completa, output_dir)
+    print("-> Gráficos de sensibilidade (Absoluta e Relativa) salvos por ticker!")
+    
+    plotar_campeoes_comparativos(analise_completa, output_dir)
+    print("-> Gráficos comparativos de campeões (RMSE/MAPE) salvos!")
+    
+    print("=== PIPELINE DE GRÁFICOS CONCLUÍDO COM SUCESSO! ===")
