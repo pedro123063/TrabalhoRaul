@@ -8,80 +8,70 @@ def calculate_mape(predicted: np.ndarray, answers: np.ndarray) -> float:
     absolute_percentage_errors = np.abs((answers - predicted) / answers)
     return float(np.mean(absolute_percentage_errors) * 100)
 
-def calculate_daily_errors(predicted: np.ndarray, answers: np.ndarray) -> dict:
-    return {
-        "absolute": np.abs(answers - predicted),
-        "percentage": (np.abs(answers - predicted) / answers) * 100
-    }
-
 def run_analysis_pipeline(resultados_finais: dict) -> dict:
-    print("\n=== INICIANDO PROCESSAMENTO DAS MÉTRICAS DE ANÁLISE ===")
-    
-    analise_completa = {
-        "todos_cenarios": {},
-        "campeoes_rmse": {},
-        "campeoes_mape": {}
-    }
-    
+
+    campeoes_por_ticker = {}
+
     for ticker, kernels in resultados_finais.items():
-        print(f"-> Analisando múltiplos eixos (incluindo janela) e identificando campeões para: {ticker}")
+        campeoes_por_ticker[ticker] = {
+            "campeao_rmse": None,
+            "campeao_mape": None,
+            "campeao_tempo": None
+        }
         
-        analise_completa["todos_cenarios"][ticker] = {}
+        melhor_rmse = float('inf')
+        melhor_mape = float('inf')
+        melhor_tempo = float('inf')
         
-        melhor_rmse = float("inf")
-        melhor_mape = float("inf")
-        
-        campeao_rmse_data = {}
-        campeao_mape_data = {}
-        
-        # Varredura dos 5 eixos
+
         for kernel, splits in kernels.items():
-            analise_completa["todos_cenarios"][ticker][kernel] = {}
-            for split, cs in splits.items():
-                analise_completa["todos_cenarios"][ticker][kernel][split] = {}
-                for c_value, wrs in cs.items():
-                    analise_completa["todos_cenarios"][ticker][kernel][split][c_value] = {}
-                    for w_ratio, dados in wrs.items():
-                        pred = dados["predicted"]
-                        real = dados["answers"]
-                        
-                        rmse_val = calculate_rmse(pred, real)
-                        mape_val = calculate_mape(pred, real)
-                        erros_diarios = calculate_daily_errors(pred, real)
-                        
-                        cenario_res = {
-                            "metrics": {"rmse": rmse_val, "mape": mape_val},
-                            "time_series": {
-                                "predicted": pred,
-                                "answers": real,
-                                "daily_absolute_errors": erros_diarios["absolute"],
-                                "daily_percentage_errors": erros_diarios["percentage"]
-                            }
-                        }
-                        
-                        # Salva na árvore de 5 níveis
-                        analise_completa["todos_cenarios"][ticker][kernel][split][c_value][w_ratio] = cenario_res
-                        
-                        # Identifica campeão por RMSE
-                        if rmse_val < melhor_rmse:
-                            melhor_rmse = rmse_val
-                            campeao_rmse_data = {
-                                "config": {"kernel": kernel, "split": split, "C": c_value, "window_ratio": w_ratio},
-                                "metrics": {"rmse": rmse_val, "mape": mape_val},
-                                "time_series": cenario_res["time_series"]
+            for split, c_values in splits.items():
+                for c_value, windows in c_values.items():
+                    for w_ratio, epsilons in windows.items():
+                        for epsilon_val, dados in epsilons.items():
+                            
+                            predicted = dados["predicted"]
+                            answers = dados["answers"]
+
+                            tempo_treino = dados.get("tempo_treino", None)
+                            tempo_predicao = dados.get("tempo_predicao", None)
+                            tempo_total = dados.get("tempo_total", tempo_treino if tempo_treino else 0.0)
+                            
+
+                            rmse = calculate_rmse(predicted, answers)
+                            mape = calculate_mape(predicted, answers)
+                            
+                            cenario_summary = {
+                                "config": {
+                                    "ticker": ticker,
+                                    "kernel": kernel,
+                                    "split": split,
+                                    "c": c_value,
+                                    "window_ratio": w_ratio,
+                                    "epsilon": epsilon_val
+                                },
+                                "metrics": {
+                                    "rmse": rmse,
+                                    "mape": mape,
+                                    "tempo_treino": tempo_treino,
+                                    "tempo_predicao": tempo_predicao,
+                                    "tempo_total": tempo_total
+                                }
                             }
                             
-                        # Identifica campeão por MAPE
-                        if mape_val < melhor_mape:
-                            melhor_mape = mape_val
-                            campeao_mape_data = {
-                                "config": {"kernel": kernel, "split": split, "C": c_value, "window_ratio": w_ratio},
-                                "metrics": {"rmse": rmse_val, "mape": mape_val},
-                                "time_series": cenario_res["time_series"]
-                            }
-        
-        analise_completa["campeoes_rmse"][ticker] = campeao_rmse_data
-        analise_completa["campeoes_mape"][ticker] = campeao_mape_data
-        
-    print("=== ANÁLISE CONCLUÍDA E MODELOS SELECIONADOS COM SUCESSO! ===")
-    return analise_completa
+
+                            if rmse < melhor_rmse:
+                                melhor_rmse = rmse
+                                campeoes_por_ticker[ticker]["campeao_rmse"] = cenario_summary
+
+                            if mape < melhor_mape:
+                                melhor_mape = mape
+                                campeoes_por_ticker[ticker]["campeao_mape"] = cenario_summary
+
+
+                            if tempo_total < melhor_tempo:
+                                melhor_tempo = tempo_total
+                                campeoes_por_ticker[ticker]["campeao_tempo"] = cenario_summary
+
+
+    return campeoes_por_ticker

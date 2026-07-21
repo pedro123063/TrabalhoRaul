@@ -1,161 +1,115 @@
 import os
-import matplotlib.pyplot as plt
-import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
-def _garantir_diretorio(diretorio: str):
-    if not os.path.exists(diretorio):
-        os.makedirs(diretorio)
 
-# =====================================================================
-# 1. GERADOR DE TABELA CONSOLIDADA (Salva como imagem e printa no console)
-# =====================================================================
-def gerar_tabela_consolida(analise_completa: dict, output_dir: str):
-    _garantir_diretorio(output_dir)
-    linhas = []
+def _build_dataframe_from_metric(analise_campeoes: dict, dict_key: str) -> pd.DataFrame:
+    rows = []
+    for ticker, data in analise_campeoes.items():
+        champion_data = data.get(dict_key)
+        if not champion_data:
+            continue
+        
+        cfg = champion_data["config"]
+        met = champion_data["metrics"]
+        
+        rows.append({
+            "Ticker": cfg["ticker"],
+            "Kernel": cfg["kernel"],
+            "Split": cfg["split"],
+            "C": cfg["c"],
+            "Window Ratio": cfg["window_ratio"],
+            "Epsilon": cfg["epsilon"],
+            "RMSE": met["rmse"],
+            "MAPE (%)": met["mape"],
+            "Tempo Treino (s)": met["tempo_treino"] if met["tempo_treino"] is not None else 0.0,
+            "Tempo Predição (s)": met["tempo_predicao"] if met["tempo_predicao"] is not None else 0.0,
+            "Tempo Total (s)": met["tempo_total"]
+        })
     
-    # Nova varredura com 5 níveis
-    for ticker, kernels in analise_completa["todos_cenarios"].items():
-        for kernel, splits in kernels.items():
-            for split, cs in splits.items():
-                for c_value, wrs in cs.items():
-                    for w_ratio, dados in wrs.items():
-                        rmse = dados["metrics"]["rmse"]
-                        mape = dados["metrics"]["mape"]
-                        linhas.append({
-                            "Ticker": ticker,
-                            "Kernel": kernel,
-                            "Split": split,
-                            "C": c_value,
-                            "Window": f"{w_ratio * 100:.0f}%", # Novo campo visual
-                            "RMSE (R$)": f"R$ {rmse:.4f}",
-                            "MAPE (%)": f"{mape:.2f}%"
-                        })
+    if not rows:
+        return pd.DataFrame()
     
-    df_tabela = pd.DataFrame(linhas)
+    return pd.DataFrame(rows)
+
+
+def _render_table_png(df: pd.DataFrame, title: str, output_path: str) -> str:
+    df_display = df.copy()
+    df_display["RMSE"] = df_display["RMSE"].map("{:.4f}".format)
+    df_display["MAPE (%)"] = df_display["MAPE (%)"].map("{:.2f}%".format)
+    df_display["Tempo Treino (s)"] = df_display["Tempo Treino (s)"].map("{:.4f}".format)
+    df_display["Tempo Predição (s)"] = df_display["Tempo Predição (s)"].map("{:.4f}".format)
+    df_display["Tempo Total (s)"] = df_display["Tempo Total (s)"].map("{:.4f}".format)
+
+    fig, ax = plt.subplots(figsize=(14, max(2.5, len(df_display) * 0.7 + 1.2)))
+    ax.axis('tight')
+    ax.axis('off')
     
-    print("\n" + "="*80)
-    print("           TABELA CONSOLIDADA DE MÉTRICAS MULTIVARIADAS")
-    print("="*80)
-    print(df_tabela.to_string(index=False))
-    print("="*80)
-    
-    fig, ax = plt.subplots(figsize=(10, len(df_tabela) * 0.35 + 1.5))
-    ax.axis("tight")
-    ax.axis("off")
-    
-    tabela_plot = ax.table(
-        cellText=df_tabela.values,
-        colLabels=df_tabela.columns,
-        cellLoc="center",
-        loc="center"
+    table = ax.table(
+        cellText=df_display.values,
+        colLabels=df_display.columns,
+        cellLoc='center',
+        loc='center'
     )
-    tabela_plot.auto_set_font_size(False)
-    tabela_plot.set_fontsize(9)
-    tabela_plot.scale(1.2, 1.2)
     
-    plt.title("Métricas Consolidadas por Cenário", fontsize=12, weight="bold", pad=20)
-    plt.savefig(os.path.join(output_dir, "tabela_consolidada.png"), bbox_inches="tight", dpi=150)
+    table.auto_set_font_size(False)
+    table.set_fontsize(10)
+    table.scale(1.2, 1.8)
+    
+    for (r, c), cell in table.get_celld().items():
+        if r == 0:
+            cell.set_facecolor('#1f4e78')
+            cell.set_text_props(color='white', weight='bold')
+        else:
+            if r % 2 == 0:
+                cell.set_facecolor('#f2f2f2')
+            else:
+                cell.set_facecolor('#ffffff')
+
+    plt.title(title, fontsize=14, weight='bold', pad=15)
+    plt.savefig(output_path, bbox_inches='tight', dpi=300)
     plt.close()
+    
+    return output_path
 
-# =====================================================================
-# 2. GRÁFICOS DE SENSIBILIDADE POR TICKER (Absoluto e Relativo)
-# =====================================================================
-def plotar_sensibilidade_por_ticker(analise_completa: dict, output_dir: str):
-    _garantir_diretorio(output_dir)
-    
-    for ticker, kernels in analise_completa["todos_cenarios"].items():
-        # --- 2.1 Erros Absolutos (R$) ---
-        plt.figure(figsize=(12, 6))
-        for kernel, splits in kernels.items():
-            for split, cs in splits.items():
-                for c_value, wrs in cs.items():
-                    for w_ratio, dados in wrs.items():
-                        erros_absolutos = dados["time_series"]["daily_absolute_errors"]
-                        passos_tempo = np.arange(len(erros_absolutos))
-                        label_curva = f"K: {kernel} | S: {split} | C: {c_value} | W: {w_ratio:.2f}"
-                        plt.plot(passos_tempo, erros_absolutos, label=label_curva, alpha=0.8)
-        
-        plt.title(f"Sensibilidade de Erro Diário Absoluto (R$) - {ticker}", fontsize=14, weight="bold")
-        plt.xlabel("Dias de Teste", fontsize=11)
-        plt.ylabel("Erro Absoluto (R$)", fontsize=11)
-        plt.grid(True, linestyle="--", alpha=0.5)
-        plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=8)
-        plt.savefig(os.path.join(output_dir, f"sensibilidade_absoluta_{ticker}.png"), bbox_inches="tight", dpi=150)
-        plt.close()
 
-        # --- 2.2 Erros Relativos (%) ---
-        plt.figure(figsize=(12, 6))
-        for kernel, splits in kernels.items():
-            for split, cs in splits.items():
-                for c_value, wrs in cs.items():
-                    for w_ratio, dados in wrs.items():
-                        erros_percentuais = dados["time_series"]["daily_percentage_errors"]
-                        passos_tempo = np.arange(len(erros_percentuais))
-                        label_curva = f"K: {kernel} | S: {split} | C: {c_value} | W: {w_ratio:.2f}"
-                        plt.plot(passos_tempo, erros_percentuais, label=label_curva, alpha=0.8)
-        
-        plt.title(f"Sensibilidade de Erro Diário Percentual (%) - {ticker}", fontsize=14, weight="bold")
-        plt.xlabel("Dias de Teste", fontsize=11)
-        plt.ylabel("Erro Percentual (%)", fontsize=11)
-        plt.grid(True, linestyle="--", alpha=0.5)
-        plt.legend(loc="upper left", bbox_to_anchor=(1, 1), fontsize=8)
-        plt.savefig(os.path.join(output_dir, f"sensibilidade_relativa_{ticker}.png"), bbox_inches="tight", dpi=150)
-        plt.close()
+def generate_rmse_table(analise_campeoes: dict, output_dir: str = ".") -> str:
+    os.makedirs(output_dir, exist_ok=True)
+    df = _build_dataframe_from_metric(analise_campeoes, "campeao_rmse")
+    if df.empty:
+        return ""
+    
+    df = df.sort_values(by="RMSE", ascending=True)
+    output_path = os.path.join(output_dir, "tabela_campeoes_rmse.png")
+    return _render_table_png(df, "Modelos Campeões por RMSE", output_path)
 
-# =====================================================================
-# 3. GRÁFICOS DOS CAMPEÕES (Melhor Absoluto vs Melhor Relativo)
-# =====================================================================
-def plotar_campeoes_comparativos(analise_completa: dict, output_dir: str):
-    _garantir_diretorio(output_dir)
-    
-    # 3.1 Campeões por RMSE (Métrica Absoluta - Erro em R$)
-    plt.figure(figsize=(10, 5))
-    for ticker, campeao in analise_completa["campeoes_rmse"].items():
-        erros_absolutos = campeao["time_series"]["daily_absolute_errors"]
-        cfg = campeao["config"]
-        plt.plot(
-            erros_absolutos, 
-            label=f"{ticker} ({cfg['kernel']}, S:{cfg['split']}, C:{cfg['C']}, W:{cfg['window_ratio']:.2f}) | RMSE: R$ {campeao['metrics']['rmse']:.2f}"
-        )
-    plt.title("Performance dos Modelos Campeões (Menor RMSE Absoluto)", fontsize=12, weight="bold")
-    plt.xlabel("Dias de Teste")
-    plt.ylabel("Erro Absoluto (R$)")
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend(fontsize=9)
-    plt.savefig(os.path.join(output_dir, "campeoes_melhor_rmse.png"), bbox_inches="tight", dpi=150)
-    plt.close()
 
-    # 3.2 Campeões por MAPE (Métrica Relativa - Erro em %)
-    plt.figure(figsize=(10, 5))
-    for ticker, campeao in analise_completa["campeoes_mape"].items():
-        erros_percentuais = campeao["time_series"]["daily_percentage_errors"]
-        cfg = campeao["config"]
-        plt.plot(
-            erros_percentuais, 
-            label=f"{ticker} ({cfg['kernel']}, S:{cfg['split']}, C:{cfg['C']}, W:{cfg['window_ratio']:.2f}) | MAPE: {campeao['metrics']['mape']:.2f}%"
-        )
-    plt.title("Performance dos Modelos Campeões (Menor MAPE Relativo)", fontsize=12, weight="bold")
-    plt.xlabel("Dias de Teste")
-    plt.ylabel("Erro Percentual (%)")
-    plt.grid(True, linestyle="--", alpha=0.5)
-    plt.legend(fontsize=9)
-    plt.savefig(os.path.join(output_dir, "campeoes_melhor_mape.png"), bbox_inches="tight", dpi=150)
-    plt.close()
+def generate_mape_table(analise_campeoes: dict, output_dir: str = ".") -> str:
+    os.makedirs(output_dir, exist_ok=True)
+    df = _build_dataframe_from_metric(analise_campeoes, "campeao_mape")
+    if df.empty:
+        return ""
+    
+    df = df.sort_values(by="MAPE (%)", ascending=True)
+    output_path = os.path.join(output_dir, "tabela_campeoes_mape.png")
+    return _render_table_png(df, "Modelos Campeões por MAPE", output_path)
 
-# =====================================================================
-# PIPELINE INTEGRADO DE GRÁFICOS
-# =====================================================================
-def run_graphics_pipeline(analise_completa: dict, output_dir: str = "output"):
-    print("\n=== INICIANDO EXPORTAÇÃO DE GRÁFICOS E TABELAS ===")
+
+def generate_tempo_table(analise_campeoes: dict, output_dir: str = ".") -> str:
+    os.makedirs(output_dir, exist_ok=True)
+    df = _build_dataframe_from_metric(analise_campeoes, "campeao_tempo")
+    if df.empty:
+        return ""
     
-    gerar_tabela_consolida(analise_completa, output_dir)
-    print("-> Tabela consolidada criada com sucesso!")
-    
-    plotar_sensibilidade_por_ticker(analise_completa, output_dir)
-    print("-> Gráficos de sensibilidade (Absoluta e Relativa) salvos por ticker!")
-    
-    plotar_campeoes_comparativos(analise_completa, output_dir)
-    print("-> Gráficos comparativos de campeões (RMSE/MAPE) salvos!")
-    
-    print("=== PIPELINE DE GRÁFICOS CONCLUÍDO COM SUCESSO! ===")
+    df = df.sort_values(by="Tempo Total (s)", ascending=True)
+    output_path = os.path.join(output_dir, "tabela_campeoes_tempo.png")
+    return _render_table_png(df, "Modelos Campeões por Tempo Total", output_path)
+
+
+def run_graphics_pipeline(analise_campeoes: dict, output_dir: str = ".") -> list:
+    files = [
+        generate_rmse_table(analise_campeoes, output_dir),
+        generate_mape_table(analise_campeoes, output_dir),
+        generate_tempo_table(analise_campeoes, output_dir)
+    ]
+    return [f for f in files if f]
